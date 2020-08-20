@@ -8,6 +8,7 @@ interface ScheduleItem {
   from: string,
   to: string
 }
+
 const classesController = {
   Store: async(request: Request, response: Response) => {
 
@@ -20,8 +21,11 @@ const classesController = {
       cost,
       schedule, 
       } = request.body
-
-    const insertedUsersIds = await database('users').insert({
+    
+    const trx = await database.transaction()
+      
+   try {
+    const insertedUsersIds = await trx('users').insert({
       name,
       avatar,
       whatsapp,
@@ -30,7 +34,7 @@ const classesController = {
 
     const user_id = insertedUsersIds[0]
     
-    const insertedClassesIds = await database('classes').insert({
+    const insertedClassesIds = await trx('classes').insert({
       subject, 
       cost,
       user_id,
@@ -47,23 +51,49 @@ const classesController = {
       }
     })
 
-    await database('class_schedule').insert(class_schedule)
+    await trx('class_schedule').insert(class_schedule)
 
-    return response.json({
-      name, 
-      avatar,
-      whatsapp,
-      bio,
-      subject, 
-      cost,
-      schedule,
+    await trx.commit()
+    return response.status(201).send()
+
+   } catch (error) {
+     await trx.rollback()
+
+     return response.status(401).json({
+       message: "Unspected error while creating new class!"
     })
+   }
   },
 
   Index: async(request: Request, response: Response) => {
-    const index = await database('classes').select('*')
+   
+    const filters = request.query
 
-    return response.json(index)
+    const week_day = filters.week_day as string
+    const subject = filters.subject as string
+    const time = filters.time as string
+
+    if(!week_day || !subject || !time){
+      return response.status(400).json({
+        message: 'Missing filters to search classes'
+      })
+    }
+
+    const timeInMinutes = convertHourToMinutes(time)
+    
+    const classes = await database('classes')
+      .whereExists(function(){
+        this.select('class_schedule.*')
+          .from('class_schedule')
+          .whereRaw('class_schedule.class_id = classes.id')
+          .whereRaw('class_schedule.week_day = ??', [Number(week_day)])
+          .whereRaw('class_schedule.from <= ??', [timeInMinutes])
+          .whereRaw('class_schedule.to > ??', [timeInMinutes])
+      })
+      .where({ subject })
+      .join('users', 'classes.user_id', '=', 'users.id')
+      .select('classes.*', 'users.*')
+    return response.json(await classes)
   },
 }
 
