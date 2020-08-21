@@ -22,10 +22,9 @@ const connectionsController = {
   Index: async(request: Request, response: Response) => {
     const totalConnections = await database('connections').count('* as total')
 
-    const { total } = totalConnections[0]
-
     try{
-
+      const { total } = totalConnections[0]
+      
       return response.json({ total })
     }catch(err) {
 
